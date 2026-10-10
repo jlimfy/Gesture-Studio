@@ -1,0 +1,1307 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gesture Studio - Spatial Hand Controller</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    
+    <!-- MediaPipe Hands & Camera Utils JS CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <!-- Tailwind Configuration -->
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        cyber: {
+                            bg: '#07090e',
+                            card: 'rgba(15, 23, 42, 0.65)',
+                            border: 'rgba(56, 189, 248, 0.25)',
+                            primary: '#00f3ff',
+                            secondary: '#ff0055',
+                            accent: '#a855f7',
+                            glow: 'rgba(0, 243, 255, 0.4)'
+                        }
+                    },
+                    fontFamily: {
+                        orbitron: ['Orbitron', 'sans-serif'],
+                        sans: ['Plus Jakarta Sans', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            background-color: #07090e;
+            color: #f1f5f9;
+            overflow: hidden;
+            user-select: none;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+
+        .glass-panel {
+            background: rgba(13, 18, 30, 0.7);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(0, 243, 255, 0.18);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5), inset 0 0 15px rgba(0, 243, 255, 0.05);
+        }
+
+        .glass-card {
+            background: rgba(20, 27, 45, 0.6);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .glass-card:hover {
+            border-color: rgba(0, 243, 255, 0.4);
+            box-shadow: 0 0 20px rgba(0, 243, 255, 0.2);
+        }
+
+        .neon-glow-cyan {
+            box-shadow: 0 0 15px rgba(0, 243, 255, 0.5), inset 0 0 10px rgba(0, 243, 255, 0.3);
+        }
+
+        .neon-glow-magenta {
+            box-shadow: 0 0 15px rgba(ff, 0, 85, 0.5), inset 0 0 10px rgba(255, 0, 85, 0.3);
+        }
+
+        .neon-text-cyan {
+            text-shadow: 0 0 10px rgba(0, 243, 255, 0.7), 0 0 20px rgba(0, 243, 255, 0.4);
+        }
+
+        .neon-text-magenta {
+            text-shadow: 0 0 10px rgba(255, 0, 85, 0.7), 0 0 20px rgba(255, 0, 85, 0.4);
+        }
+
+        /* Scanline Overlay */
+        .scanlines {
+            background: linear-gradient(
+                rgba(18, 16, 16, 0) 50%, 
+                rgba(0, 0, 0, 0.25) 50%
+            ), linear-gradient(
+                90deg,
+                rgba(255, 0, 0, 0.03),
+                rgba(0, 255, 0, 0.01),
+                rgba(0, 0, 255, 0.03)
+            );
+            background-size: 100% 4px, 6px 100%;
+            pointer-events: none;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(10, 15, 26, 0.5);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(0, 243, 255, 0.3);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(0, 243, 255, 0.6);
+        }
+
+        /* Pulse Animation */
+        @keyframes pulseGlow {
+            0%, 100% { opacity: 0.4; transform: scale(1); }
+            50% { opacity: 0.8; transform: scale(1.05); }
+        }
+        .pulse-glow {
+            animation: pulseGlow 3s infinite ease-in-out;
+        }
+    </style>
+</head>
+<body class="w-screen h-screen relative select-none bg-cyber-bg overflow-hidden">
+
+    <!-- Main Render Canvas -->
+    <canvas id="mainCanvas" class="absolute inset-0 w-full h-full z-0 pointer-events-none"></canvas>
+    
+    <!-- Cyber CRT Scanlines Overlay -->
+    <div class="scanlines absolute inset-0 z-10 pointer-events-none opacity-40"></div>
+
+    <!-- Laser Cursor Tracker Overlay -->
+    <div id="virtualCursor" class="absolute w-8 h-8 rounded-full border-2 border-cyber-primary z-50 pointer-events-none transform -translate-x-1/2 -translate-y-1/2 transition-transform duration-75 ease-out opacity-0 flex items-center justify-center">
+        <div class="w-2 h-2 bg-cyber-primary rounded-full animate-ping"></div>
+        <div id="cursorRing" class="absolute w-12 h-12 border border-cyber-secondary rounded-full opacity-50 scale-75 transition-all duration-150"></div>
+    </div>
+
+    <!-- TOP HUD NAVIGATION & CONTROLS -->
+    <header class="absolute top-0 left-0 right-0 z-40 p-4 flex flex-wrap items-center justify-between gap-4 pointer-events-none">
+        <!-- Logo & Status -->
+        <div class="flex items-center gap-4 pointer-events-auto">
+            <div class="glass-panel px-4 py-2 rounded-xl flex items-center gap-3">
+                <div class="relative flex items-center justify-center">
+                    <i class="fa-solid fa-hand-sparkles text-cyber-primary text-xl animate-pulse"></i>
+                    <div class="absolute inset-0 bg-cyber-primary blur-sm opacity-50"></div>
+                </div>
+                <div>
+                    <h1 class="font-orbitron font-bold text-base tracking-wider text-white flex items-center gap-2">
+                        GESTURE<span class="text-cyber-primary">STUDIO</span>
+                        <span class="text-[10px] px-1.5 py-0.5 rounded bg-cyber-primary/20 text-cyber-primary border border-cyber-primary/40 font-mono">v2.5</span>
+                    </h1>
+                    <div class="flex items-center gap-2 text-xs text-slate-400 font-mono">
+                        <span id="cameraStatusDot" class="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
+                        <span id="cameraStatusText">Initializing Cam...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Gesture Badge Display -->
+            <div id="gestureBadge" class="glass-panel px-4 py-2 rounded-xl hidden sm:flex items-center gap-3 border-cyber-primary/40 transition-all duration-300">
+                <i id="gestureIcon" class="fa-solid fa-hand text-cyber-primary text-lg"></i>
+                <div>
+                    <div class="text-[10px] text-slate-400 font-mono uppercase tracking-widest">Active Gesture</div>
+                    <div id="gestureName" class="font-orbitron font-semibold text-sm text-cyber-primary">NEUTRAL</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mode Switcher Tabs -->
+        <div class="glass-panel p-1.5 rounded-2xl flex items-center gap-1 pointer-events-auto shadow-2xl">
+            <button id="tabSandbox" onclick="switchMode('sandbox')" class="mode-tab px-4 py-2 rounded-xl font-orbitron text-xs font-semibold transition-all duration-300 bg-cyber-primary text-slate-950 shadow-lg shadow-cyber-primary/30 flex items-center gap-2">
+                <i class="fa-solid fa-atom"></i>
+                <span class="hidden md:inline">Cosmic Sandbox</span>
+            </button>
+            <button id="tabSynth" onclick="switchMode('synth')" class="mode-tab px-4 py-2 rounded-xl font-orbitron text-xs font-semibold transition-all duration-300 text-slate-300 hover:text-white hover:bg-white/5 flex items-center gap-2">
+                <i class="fa-solid fa-wave-square"></i>
+                <span class="hidden md:inline">Spatial Synth</span>
+            </button>
+            <button id="tabOS" onclick="switchMode('os')" class="mode-tab px-4 py-2 rounded-xl font-orbitron text-xs font-semibold transition-all duration-300 text-slate-300 hover:text-white hover:bg-white/5 flex items-center gap-2">
+                <i class="fa-solid fa-cubes-stacked"></i>
+                <span class="hidden md:inline">Gesture OS</span>
+            </button>
+        </div>
+
+        <!-- System Controls & Stats -->
+        <div class="flex items-center gap-3 pointer-events-auto">
+            <!-- Audio Toggle -->
+            <button id="audioBtn" onclick="toggleAudio()" class="glass-panel w-10 h-10 rounded-xl flex items-center justify-center text-slate-300 hover:text-cyber-primary hover:border-cyber-primary/50 transition-all" title="Toggle Master Audio">
+                <i id="audioIcon" class="fa-solid fa-volume-xmark text-sm"></i>
+            </button>
+
+            <!-- Guide Modal Trigger -->
+            <button onclick="toggleHelpModal(true)" class="glass-panel w-10 h-10 rounded-xl flex items-center justify-center text-slate-300 hover:text-cyber-primary hover:border-cyber-primary/50 transition-all" title="Gesture Guide">
+                <i class="fa-solid fa-circle-question text-sm"></i>
+            </button>
+
+            <!-- FPS Counter -->
+            <div class="glass-panel px-3 py-2 rounded-xl hidden lg:flex items-center gap-2 font-mono text-xs text-slate-400">
+                <i class="fa-solid fa-gauge-high text-cyber-primary"></i>
+                <span id="fpsCounter" class="text-white font-semibold">60</span> FPS
+            </div>
+        </div>
+    </header>
+
+    <!-- MODE 3: GESTURE OS INTERACTIVE CONTAINER -->
+    <main id="osContainer" class="absolute inset-0 z-20 pt-24 pb-20 px-6 hidden pointer-events-none">
+        <div class="w-full h-full max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+            
+            <!-- Glass Window 1: Environment Lighting -->
+            <div class="glass-panel p-6 rounded-2xl pointer-events-auto flex flex-col gap-4 transform transition-all duration-300 hover:translate-y-[-2px]">
+                <div class="flex items-center justify-between border-b border-white/10 pb-3">
+                    <div class="flex items-center gap-2 font-orbitron font-semibold text-cyber-primary text-sm">
+                        <i class="fa-solid fa-lightbulb"></i> Ambient Lighting
+                    </div>
+                    <span class="w-2 h-2 rounded-full bg-cyber-primary"></span>
+                </div>
+                
+                <p class="text-xs text-slate-400">Control environment plasma hue using pinch-and-drag gestures or virtual cursor.</p>
+
+                <div class="space-y-4">
+                    <div>
+                        <div class="flex justify-between text-xs font-mono mb-1 text-slate-300">
+                            <span>NEON INTENSITY</span>
+                            <span id="intensityVal">75%</span>
+                        </div>
+                        <input type="range" id="intensitySlider" min="0" max="100" value="75" oninput="updateOSLight()" class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyber-primary">
+                    </div>
+
+                    <div class="grid grid-cols-4 gap-2 pt-2">
+                        <button onclick="setLightTheme('#00f3ff')" class="h-9 rounded-xl bg-[#00f3ff]/20 border border-[#00f3ff] hover:scale-105 transition-transform"></button>
+                        <button onclick="setLightTheme('#ff0055')" class="h-9 rounded-xl bg-[#ff0055]/20 border border-[#ff0055] hover:scale-105 transition-transform"></button>
+                        <button onclick="setLightTheme('#a855f7')" class="h-9 rounded-xl bg-[#a855f7]/20 border border-[#a855f7] hover:scale-105 transition-transform"></button>
+                        <button onclick="setLightTheme('#10b981')" class="h-9 rounded-xl bg-[#10b981]/20 border border-[#10b981] hover:scale-105 transition-transform"></button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Glass Window 2: Spatial Sound Trigger Pad -->
+            <div class="glass-panel p-6 rounded-2xl pointer-events-auto flex flex-col gap-4 transform transition-all duration-300 hover:translate-y-[-2px]">
+                <div class="flex items-center justify-between border-b border-white/10 pb-3">
+                    <div class="flex items-center gap-2 font-orbitron font-semibold text-cyber-secondary text-sm">
+                        <i class="fa-solid fa-drum"></i> Holographic Sound Matrix
+                    </div>
+                    <span class="w-2 h-2 rounded-full bg-cyber-secondary"></span>
+                </div>
+                <p class="text-xs text-slate-400">Touch or pinch tiles to trigger synthesized spatial sound impulses.</p>
+                
+                <div class="grid grid-cols-3 gap-3">
+                    <button onclick="playMatrixSound(0)" class="matrix-pad aspect-square rounded-xl glass-card flex flex-col items-center justify-center gap-1 hover:border-cyber-primary hover:text-cyber-primary text-slate-300 transition-all">
+                        <i class="fa-solid fa-bolt text-lg"></i>
+                        <span class="text-[10px] font-mono">PULSE</span>
+                    </button>
+                    <button onclick="playMatrixSound(1)" class="matrix-pad aspect-square rounded-xl glass-card flex flex-col items-center justify-center gap-1 hover:border-cyber-secondary hover:text-cyber-secondary text-slate-300 transition-all">
+                        <i class="fa-solid fa-meteor text-lg"></i>
+                        <span class="text-[10px] font-mono">WARP</span>
+                    </button>
+                    <button onclick="playMatrixSound(2)" class="matrix-pad aspect-square rounded-xl glass-card flex flex-col items-center justify-center gap-1 hover:border-cyber-accent hover:text-cyber-accent text-slate-300 transition-all">
+                        <i class="fa-solid fa-ghost text-lg"></i>
+                        <span class="text-[10px] font-mono">ECHO</span>
+                    </button>
+                    <button onclick="playMatrixSound(3)" class="matrix-pad aspect-square rounded-xl glass-card flex flex-col items-center justify-center gap-1 hover:border-emerald-400 hover:text-emerald-400 text-slate-300 transition-all">
+                        <i class="fa-solid fa-satellite text-lg"></i>
+                        <span class="text-[10px] font-mono">BEAM</span>
+                    </button>
+                    <button onclick="playMatrixSound(4)" class="matrix-pad aspect-square rounded-xl glass-card flex flex-col items-center justify-center gap-1 hover:border-amber-400 hover:text-amber-400 text-slate-300 transition-all">
+                        <i class="fa-solid fa-shield-halved text-lg"></i>
+                        <span class="text-[10px] font-mono">SHIELD</span>
+                    </button>
+                    <button onclick="playMatrixSound(5)" class="matrix-pad aspect-square rounded-xl glass-card flex flex-col items-center justify-center gap-1 hover:border-pink-500 hover:text-pink-500 text-slate-300 transition-all">
+                        <i class="fa-solid fa-sparkles text-lg"></i>
+                        <span class="text-[10px] font-mono">SPARK</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Glass Window 3: System Status & Switches -->
+            <div class="glass-panel p-6 rounded-2xl pointer-events-auto flex flex-col gap-4 transform transition-all duration-300 hover:translate-y-[-2px]">
+                <div class="flex items-center justify-between border-b border-white/10 pb-3">
+                    <div class="flex items-center gap-2 font-orbitron font-semibold text-amber-400 text-sm">
+                        <i class="fa-solid fa-sliders"></i> Force Parameters
+                    </div>
+                    <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+                </div>
+
+                <div class="space-y-3">
+                    <div class="flex items-center justify-between p-3 rounded-xl bg-slate-900/50 border border-white/5">
+                        <div class="text-xs">
+                            <div class="font-semibold text-white">Particle Gravity</div>
+                            <div class="text-[10px] text-slate-400">Enable spatial physics pull</div>
+                        </div>
+                        <button id="toggleGravity" onclick="toggleOSGravity()" class="w-12 h-6 rounded-full bg-cyber-primary/20 border border-cyber-primary p-0.5 transition-all">
+                            <div class="w-4 h-4 rounded-full bg-cyber-primary transform translate-x-6 transition-transform"></div>
+                        </button>
+                    </div>
+
+                    <div class="flex items-center justify-between p-3 rounded-xl bg-slate-900/50 border border-white/5">
+                        <div class="text-xs">
+                            <div class="font-semibold text-white">Particle Trail Stream</div>
+                            <div class="text-[10px] text-slate-400">High precision plasma ribbon</div>
+                        </div>
+                        <button id="toggleTrails" onclick="toggleOSTrails()" class="w-12 h-6 rounded-full bg-cyber-primary/20 border border-cyber-primary p-0.5 transition-all">
+                            <div class="w-4 h-4 rounded-full bg-cyber-primary transform translate-x-6 transition-transform"></div>
+                        </button>
+                    </div>
+
+                    <button onclick="resetParticleSystem()" class="w-full py-2.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 text-xs font-orbitron font-semibold tracking-wider transition-all flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-rotate-right"></i> Reset Particle System
+                    </button>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- BOTTOM WEBCAM FLOATING HUD CARD -->
+    <div id="webcamHud" class="fixed bottom-4 right-4 z-40 glass-panel p-2 rounded-2xl flex flex-col gap-2 transition-all duration-300 w-52 sm:w-64 group shadow-2xl">
+        <!-- Header Controls -->
+        <div class="flex items-center justify-between px-2 pt-1 text-xs text-slate-400">
+            <span class="font-mono text-[10px] flex items-center gap-1.5 text-cyber-primary">
+                <i class="fa-solid fa-camera"></i> TRACKING FEED
+            </span>
+            <div class="flex items-center gap-1">
+                <button onclick="toggleWireframe()" class="hover:text-white p-1 rounded transition-colors" title="Toggle Skeleton">
+                    <i id="wireframeIcon" class="fa-solid fa-bone text-cyber-primary"></i>
+                </button>
+                <button onclick="toggleCameraMirror()" class="hover:text-white p-1 rounded transition-colors" title="Mirror Camera">
+                    <i class="fa-solid fa-right-left"></i>
+                </button>
+                <button onclick="toggleHudMinimize()" class="hover:text-white p-1 rounded transition-colors" title="Minimize HUD">
+                    <i id="minimizeIcon" class="fa-solid fa-chevron-down"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Video & Render Overlay Wrapper -->
+        <div id="camFeedContainer" class="relative w-full aspect-video rounded-xl overflow-hidden bg-slate-950 border border-white/10 group-hover:border-cyber-primary/40 transition-colors">
+            <!-- MediaPipe Feed Video Element (Hidden from display directly, processed to canvas) -->
+            <video id="webcam" class="hidden" playsinline></video>
+
+            <!-- Skeleton & Tracking Overlay Canvas -->
+            <canvas id="handCanvas" class="w-full h-full object-cover transform -scale-x-100"></canvas>
+
+            <!-- Fallback Overlay if Camera Fails -->
+            <div id="camFallback" class="absolute inset-0 bg-slate-950/90 hidden flex-col items-center justify-center p-3 text-center gap-2">
+                <i class="fa-solid fa-video-slash text-red-400 text-xl"></i>
+                <p class="text-[11px] text-slate-300">Camera Permission Blocked or Unavailable</p>
+                <button onclick="enableMouseSimulation()" class="px-3 py-1 bg-cyber-primary text-slate-950 rounded-lg text-[10px] font-bold uppercase tracking-wider">Use Mouse Mode</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- GESTURE GUIDE HELP MODAL -->
+    <div id="helpModal" class="fixed inset-0 z-50 glass-panel bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 opacity-0 pointer-events-none transition-opacity duration-300">
+        <div class="glass-panel max-w-2xl w-full p-6 sm:p-8 rounded-3xl border border-cyber-primary/30 flex flex-col gap-6 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b border-white/10 pb-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-cyber-primary/20 border border-cyber-primary flex items-center justify-center text-cyber-primary">
+                        <i class="fa-solid fa-hand-sparkles text-xl"></i>
+                    </div>
+                    <div>
+                        <h2 class="font-orbitron font-bold text-lg text-white">GESTURE COMMAND GUIDE</h2>
+                        <p class="text-xs text-slate-400">Perform these spatial hand poses to control the application</p>
+                    </div>
+                </div>
+                <button onclick="toggleHelpModal(false)" class="text-slate-400 hover:text-white w-8 h-8 rounded-full bg-white/5 flex items-center justify-center">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <!-- Gesture Cards Grid -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                
+                <div class="glass-card p-4 rounded-2xl flex items-start gap-4">
+                    <div class="w-12 h-12 rounded-xl bg-cyber-primary/10 border border-cyber-primary/30 flex items-center justify-center text-cyber-primary shrink-0 text-xl">
+                        <i class="fa-solid fa-hand-pointer"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-orbitron font-semibold text-sm text-white">POINTING</h3>
+                        <p class="text-xs text-slate-400 mt-1">Index finger extended. Controls precision virtual cursor, laser ray, and synth pitch modulation.</p>
+                    </div>
+                </div>
+
+                <div class="glass-card p-4 rounded-2xl flex items-start gap-4">
+                    <div class="w-12 h-12 rounded-xl bg-cyber-secondary/10 border border-cyber-secondary/30 flex items-center justify-center text-cyber-secondary shrink-0 text-xl">
+                        <i class="fa-solid fa-hand-back-fist"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-orbitron font-semibold text-sm text-white">FIST (BLACK HOLE)</h3>
+                        <p class="text-xs text-slate-400 mt-1">Clench all fingers. Creates a powerful cosmic black hole gravity pull that sucks in particles.</p>
+                    </div>
+                </div>
+
+                <div class="glass-card p-4 rounded-2xl flex items-start gap-4">
+                    <div class="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0 text-xl">
+                        <i class="fa-solid fa-hand"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-orbitron font-semibold text-sm text-white">OPEN PALM</h3>
+                        <p class="text-xs text-slate-400 mt-1">All fingers spread. Projects an intense push force field, repelling particles and creating ripples.</p>
+                    </div>
+                </div>
+
+                <div class="glass-card p-4 rounded-2xl flex items-start gap-4">
+                    <div class="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0 text-xl">
+                        <i class="fa-solid fa-hand-scissors"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-orbitron font-semibold text-sm text-white">PEACE SIGN (V)</h3>
+                        <p class="text-xs text-slate-400 mt-1">Index and middle finger extended. Triggers explosive sparkle fireworks bursts and arp audio notes.</p>
+                    </div>
+                </div>
+
+                <div class="glass-card p-4 rounded-2xl flex items-start gap-4 sm:col-span-2">
+                    <div class="w-12 h-12 rounded-xl bg-cyber-accent/10 border border-cyber-accent/30 flex items-center justify-center text-cyber-accent shrink-0 text-xl">
+                        <i class="fa-solid fa-hand-pinch"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-orbitron font-semibold text-sm text-white">PINCH (THUMB + INDEX)</h3>
+                        <p class="text-xs text-slate-400 mt-1">Pinch thumb & index tips together. Draws vibrant plasma streams, interacts with UI buttons/sliders, and modulates filter reverb depth.</p>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="pt-2 text-center">
+                <button onclick="toggleHelpModal(false)" class="px-8 py-3 rounded-xl bg-cyber-primary text-slate-950 font-orbitron font-bold text-xs tracking-wider shadow-lg shadow-cyber-primary/30 hover:scale-105 transition-transform">
+                    LET'S GO
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /* ===================================================================
+           GLOBAL STATE & CONSTANTS
+           =================================================================== */
+        const state = {
+            mode: 'sandbox', // 'sandbox', 'synth', 'os'
+            audioEnabled: false,
+            cameraReady: false,
+            showWireframe: true,
+            isMirrored: true,
+            hudMinimized: false,
+            mouseFallback: false,
+            fps: 60,
+            
+            // Hand tracking state
+            handPresent: false,
+            handPos: { x: window.innerWidth / 2, y: window.innerHeight / 2, z: 0 },
+            rawHandPos: { x: 0.5, y: 0.5 },
+            pinchPos: { x: window.innerWidth / 2, y: window.innerHeight / 2 },
+            gesture: 'NEUTRAL', // 'NEUTRAL', 'POINT', 'PINCH', 'PALM', 'FIST', 'PEACE'
+            pinchDistance: 1.0,
+            
+            // OS Config
+            lightColor: '#00f3ff',
+            lightIntensity: 0.75,
+            gravityEnabled: true,
+            trailsEnabled: true
+        };
+
+        // DOM Element Cache
+        const mainCanvas = document.getElementById('mainCanvas');
+        const mainCtx = mainCanvas.getContext('2d');
+        const handCanvas = document.getElementById('handCanvas');
+        const handCtx = handCanvas.getContext('2d');
+        const webcamVideo = document.getElementById('webcam');
+        const virtualCursor = document.getElementById('virtualCursor');
+        const cursorRing = document.getElementById('cursorRing');
+
+        /* ===================================================================
+           WEB AUDIO API ENGINE
+           =================================================================== */
+        class AudioSynthEngine {
+            constructor() {
+                this.ctx = null;
+                this.masterGain = null;
+                this.synthOsc = null;
+                this.synthGain = null;
+                this.filter = null;
+                this.isSetup = false;
+                
+                // Pentatonic synth scale notes (Frequencies in Hz)
+                this.scale = [
+                    130.81, 146.83, 164.81, 196.00, 220.00, // C3, D3, E3, G3, A3
+                    261.63, 293.66, 329.63, 392.00, 440.00, // C4, D4, E4, G4, A4
+                    523.25, 587.33, 659.25, 783.99, 880.00  // C5, D5, E5, G5, A5
+                ];
+            }
+
+            init() {
+                if (this.isSetup) return;
+                try {
+                    const AudioContext = window.AudioContext || window.webkitAudioContext;
+                    this.ctx = new AudioContext();
+                    
+                    this.masterGain = this.ctx.createGain();
+                    this.masterGain.gain.setValueAtTime(state.audioEnabled ? 0.3 : 0, this.ctx.currentTime);
+                    this.masterGain.connect(this.ctx.destination);
+
+                    // Continuous Synth Oscillator setup
+                    this.synthOsc = this.ctx.createOscillator();
+                    this.synthGain = this.ctx.createGain();
+                    this.filter = this.ctx.createBiquadFilter();
+
+                    this.synthOsc.type = 'sawtooth';
+                    this.synthOsc.frequency.setValueAtTime(220, this.ctx.currentTime);
+
+                    this.filter.type = 'lowpass';
+                    this.filter.frequency.setValueAtTime(1000, this.ctx.currentTime);
+
+                    this.synthGain.gain.setValueAtTime(0, this.ctx.currentTime);
+
+                    this.synthOsc.connect(this.filter);
+                    this.filter.connect(this.synthGain);
+                    this.synthGain.connect(this.masterGain);
+
+                    this.synthOsc.start();
+                    this.isSetup = true;
+                } catch (e) {
+                    console.error("Web Audio API Error:", e);
+                }
+            }
+
+            setMasterVolume(val) {
+                if (!this.isSetup) return;
+                this.masterGain.gain.setTargetAtTime(val, this.ctx.currentTime, 0.05);
+            }
+
+            updateSpatialSynth(normalizedX, normalizedY, pinchDist) {
+                if (!this.isSetup || !state.audioEnabled) return;
+
+                // Map X to Scale index
+                const scaleIndex = Math.floor(normalizedX * this.scale.length);
+                const freq = this.scale[Math.min(Math.max(scaleIndex, 0), this.scale.length - 1)];
+
+                // Map Y to Filter Cutoff (100Hz - 8000Hz)
+                const cutoff = 100 + (1 - normalizedY) * 7900;
+
+                // Map Pinch to gain / modulation
+                const volume = state.handPresent ? Math.min(1.0, (1 - pinchDist * 2) * 0.4 + 0.1) : 0;
+
+                this.synthOsc.frequency.setTargetAtTime(freq, this.ctx.currentTime, 0.03);
+                this.filter.frequency.setTargetAtTime(cutoff, this.ctx.currentTime, 0.03);
+                this.synthGain.gain.setTargetAtTime(state.mode === 'synth' ? volume : 0, this.ctx.currentTime, 0.05);
+            }
+
+            playTriggerSound(type) {
+                if (!this.isSetup || !state.audioEnabled) return;
+
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                const now = this.ctx.currentTime;
+
+                osc.connect(gain);
+                gain.connect(this.masterGain);
+
+                switch (type) {
+                    case 'pop':
+                    case 'pinch':
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(800, now);
+                        osc.frequency.exponentialRampToValueAtTime(200, now + 0.1);
+                        gain.gain.setValueAtTime(0.3, now);
+                        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+                        osc.start(now);
+                        osc.stop(now + 0.1);
+                        break;
+
+                    case 'burst':
+                    case 'peace':
+                        // Arpeggio chime effect
+                        [523.25, 659.25, 783.99, 1046.50].forEach((freq, i) => {
+                            const noteOsc = this.ctx.createOscillator();
+                            const noteGain = this.ctx.createGain();
+                            noteOsc.type = 'triangle';
+                            noteOsc.frequency.setValueAtTime(freq, now + i * 0.04);
+                            noteGain.gain.setValueAtTime(0.2, now + i * 0.04);
+                            noteGain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.04 + 0.2);
+                            noteOsc.connect(noteGain);
+                            noteGain.connect(this.masterGain);
+                            noteOsc.start(now + i * 0.04);
+                            noteOsc.stop(now + i * 0.04 + 0.2);
+                        });
+                        break;
+
+                    case 'blackhole':
+                        osc.type = 'sawtooth';
+                        osc.frequency.setValueAtTime(150, now);
+                        osc.frequency.linearRampToValueAtTime(40, now + 0.4);
+                        gain.gain.setValueAtTime(0.4, now);
+                        gain.gain.linearRampToValueAtTime(0.001, now + 0.4);
+                        osc.start(now);
+                        osc.stop(now + 0.4);
+                        break;
+
+                    case 'matrix0':
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(440, now);
+                        osc.frequency.exponentialRampToValueAtTime(880, now + 0.15);
+                        gain.gain.setValueAtTime(0.3, now);
+                        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+                        osc.start(now);
+                        osc.stop(now + 0.15);
+                        break;
+
+                    case 'matrix1':
+                        osc.type = 'square';
+                        osc.frequency.setValueAtTime(120, now);
+                        osc.frequency.exponentialRampToValueAtTime(60, now + 0.3);
+                        gain.gain.setValueAtTime(0.25, now);
+                        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                        osc.start(now);
+                        osc.stop(now + 0.3);
+                        break;
+
+                    default:
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(300, now);
+                        gain.gain.setValueAtTime(0.2, now);
+                        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+                        osc.start(now);
+                        osc.stop(now + 0.2);
+                        break;
+                }
+            }
+        }
+
+        const synthEngine = new AudioSynthEngine();
+
+        /* ===================================================================
+           COSMIC PHYSICS SANDBOX PARTICLE SYSTEM
+           =================================================================== */
+        class ParticleSystem {
+            constructor(count = 2200) {
+                this.particles = [];
+                this.count = count;
+                this.init();
+            }
+
+            init() {
+                this.particles = [];
+                const colors = ['#00f3ff', '#ff0055', '#a855f7', '#38bdf8', '#f43f5e'];
+                
+                for (let i = 0; i < this.count; i++) {
+                    this.particles.push({
+                        x: Math.random() * mainCanvas.width,
+                        y: Math.random() * mainCanvas.height,
+                        baseX: Math.random() * mainCanvas.width,
+                        baseY: Math.random() * mainCanvas.height,
+                        vx: (Math.random() - 0.5) * 1.5,
+                        vy: (Math.random() - 0.5) * 1.5,
+                        size: Math.random() * 2 + 1,
+                        color: colors[Math.floor(Math.random() * colors.length)],
+                        alpha: Math.random() * 0.7 + 0.3
+                    });
+                }
+            }
+
+            update() {
+                const width = mainCanvas.width;
+                const height = mainCanvas.height;
+                const hand = state.handPos;
+                const isHandActive = state.handPresent;
+
+                for (let i = 0; i < this.particles.length; i++) {
+                    const p = this.particles[i];
+
+                    // Base motion / damping
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    p.vx *= 0.96;
+                    p.vy *= 0.96;
+
+                    // Screen Edge Bounce
+                    if (p.x < 0) { p.x = 0; p.vx *= -1; }
+                    if (p.x > width) { p.x = width; p.vx *= -1; }
+                    if (p.y < 0) { p.y = 0; p.vy *= -1; }
+                    if (p.y > height) { p.y = height; p.vy *= -1; }
+
+                    // Gentle drift towards base dynamic floating anchor
+                    if (!isHandActive) {
+                        p.vx += (Math.sin(Date.now() * 0.001 + i) * 0.05);
+                        p.vy += (Math.cos(Date.now() * 0.001 + i) * 0.05);
+                        continue;
+                    }
+
+                    // Gesture Reactions
+                    const dx = hand.x - p.x;
+                    const dy = hand.y - p.y;
+                    const dist = Math.hypot(dx, dy);
+
+                    if (state.gesture === 'PALM') { // OPEN PALM - Force Field Repel
+                        const forceRadius = 250;
+                        if (dist < forceRadius) {
+                            const angle = Math.atan2(dy, dx);
+                            const force = (1 - dist / forceRadius) * 12;
+                            p.vx -= Math.cos(angle) * force;
+                            p.vy -= Math.sin(angle) * force;
+                        }
+                    } else if (state.gesture === 'FIST') { // FIST - Black Hole Attract
+                        const forceRadius = 450;
+                        if (dist < forceRadius) {
+                            const angle = Math.atan2(dy, dx);
+                            const force = (1 - dist / forceRadius) * 4.5;
+                            p.vx += Math.cos(angle) * force + (Math.random() - 0.5) * 2;
+                            p.vy += Math.sin(angle) * force + (Math.random() - 0.5) * 2;
+                        }
+                    } else if (state.gesture === 'PINCH') { // PINCH - Stream Attraction
+                        const pinchDist = Math.hypot(state.pinchPos.x - p.x, state.pinchPos.y - p.y);
+                        if (pinchDist < 200) {
+                            const angle = Math.atan2(state.pinchPos.y - p.y, state.pinchPos.x - p.x);
+                            p.vx += Math.cos(angle) * 3;
+                            p.vy += Math.sin(angle) * 3;
+                        }
+                    } else if (state.gesture === 'PEACE') { // PEACE - Sparkle Scatter
+                        if (dist < 180) {
+                            p.vx += (Math.random() - 0.5) * 8;
+                            p.vy += (Math.random() - 0.5) * 8;
+                        }
+                    }
+                }
+            }
+
+            draw(ctx) {
+                ctx.save();
+                for (let i = 0; i < this.particles.length; i++) {
+                    const p = this.particles[i];
+                    ctx.fillStyle = p.color;
+                    ctx.globalAlpha = p.alpha;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
+
+            triggerBurst(x, y) {
+                for (let i = 0; i < this.particles.length; i++) {
+                    const p = this.particles[i];
+                    const dx = x - p.x;
+                    const dy = y - p.y;
+                    const dist = Math.hypot(dx, dy);
+                    if (dist < 220) {
+                        const angle = Math.atan2(dy, dx);
+                        p.vx -= Math.cos(angle) * (Math.random() * 20 + 5);
+                        p.vy -= Math.sin(angle) * (Math.random() * 20 + 5);
+                    }
+                }
+            }
+        }
+
+        const particleSystem = new ParticleSystem(2200);
+
+        /* ===================================================================
+           RENDER & MODE RENDERING ENGINE
+           =================================================================== */
+        function renderScene() {
+            // Resize main canvas dynamically
+            if (mainCanvas.width !== window.innerWidth || mainCanvas.height !== window.innerHeight) {
+                mainCanvas.width = window.innerWidth;
+                mainCanvas.height = window.innerHeight;
+            }
+
+            // Clear Background with alpha trail effect
+            if (state.trailsEnabled) {
+                mainCtx.fillStyle = 'rgba(7, 9, 14, 0.25)';
+                mainCtx.fillRect(0, 0, mainCanvas.width, mainCanvas.height);
+            } else {
+                mainCtx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+            }
+
+            // Update & Draw Particles in Sandbox / OS Mode
+            particleSystem.update();
+            particleSystem.draw(mainCtx);
+
+            // Draw Mode Specific Render Layers
+            if (state.mode === 'synth') {
+                drawSpatialSynthVisualizer(mainCtx);
+            }
+
+            // Draw Hand Ray & Gesture Overlays
+            if (state.handPresent) {
+                drawHandVisualFX(mainCtx);
+            }
+
+            requestAnimationFrame(renderScene);
+        }
+
+        // Mode 2: Spatial Synth Spectrum & Radial Ring Visualizer
+        function drawSpatialSynthVisualizer(ctx) {
+            const width = mainCanvas.width;
+            const height = mainCanvas.height;
+            const centerX = width / 2;
+            const centerY = height / 2;
+            const time = Date.now() * 0.002;
+
+            ctx.save();
+
+            // Pentatonic Note Grid Columns
+            const cols = synthEngine.scale.length;
+            const colWidth = width / cols;
+            for (let i = 0; i < cols; i++) {
+                const x = i * colWidth;
+                ctx.strokeStyle = (state.handPresent && Math.floor(state.rawHandPos.x * cols) === i) 
+                    ? 'rgba(0, 243, 255, 0.4)' 
+                    : 'rgba(255, 255, 255, 0.03)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, height);
+                ctx.stroke();
+            }
+
+            // Central Animated Spectrum Ring
+            const baseRadius = 120 + Math.sin(time) * 15;
+            ctx.strokeStyle = state.gesture === 'PINCH' ? '#ff0055' : '#00f3ff';
+            ctx.shadowColor = ctx.strokeStyle;
+            ctx.shadowBlur = 20;
+            ctx.lineWidth = 3;
+
+            ctx.beginPath();
+            for (let i = 0; i <= 360; i += 5) {
+                const rad = (i * Math.PI) / 180;
+                const wave = Math.sin(rad * 8 + time * 3) * (state.handPresent ? 25 : 10);
+                const r = baseRadius + wave;
+                const x = centerX + Math.cos(rad) * r;
+                const y = centerY + Math.sin(rad) * r;
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.closePath();
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
+        // Gesture Visual Effects on Main Canvas
+        function drawHandVisualFX(ctx) {
+            const hand = state.handPos;
+
+            ctx.save();
+
+            if (state.gesture === 'POINT') { // Laser Beam Ray
+                ctx.strokeStyle = 'rgba(0, 243, 255, 0.6)';
+                ctx.lineWidth = 2;
+                ctx.shadowColor = '#00f3ff';
+                ctx.shadowBlur = 15;
+
+                ctx.beginPath();
+                ctx.moveTo(hand.x, hand.y);
+                ctx.lineTo(hand.x, 0); // Ray pointing upwards
+                ctx.stroke();
+
+                ctx.fillStyle = '#00f3ff';
+                ctx.beginPath();
+                ctx.arc(hand.x, hand.y, 8, 0, Math.PI * 2);
+                ctx.fill();
+            } else if (state.gesture === 'PINCH') { // Plasma Stream
+                const pinch = state.pinchPos;
+                ctx.strokeStyle = '#ff0055';
+                ctx.lineWidth = 4;
+                ctx.shadowColor = '#ff0055';
+                ctx.shadowBlur = 20;
+
+                ctx.beginPath();
+                ctx.arc(pinch.x, pinch.y, 16, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // Connect Palm to Pinch Center
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(hand.x, hand.y);
+                ctx.lineTo(pinch.x, pinch.y);
+                ctx.stroke();
+            } else if (state.gesture === 'FIST') { // Black Hole Disk
+                ctx.strokeStyle = 'rgba(168, 85, 247, 0.8)';
+                ctx.lineWidth = 4;
+                ctx.shadowColor = '#a855f7';
+                ctx.shadowBlur = 30;
+
+                ctx.beginPath();
+                ctx.arc(hand.x, hand.y, 45, 0, Math.PI * 2);
+                ctx.stroke();
+
+                ctx.fillStyle = '#000000';
+                ctx.beginPath();
+                ctx.arc(hand.x, hand.y, 35, 0, Math.PI * 2);
+                ctx.fill();
+            } else if (state.gesture === 'PALM') { // Force Field Pulse
+                ctx.strokeStyle = 'rgba(16, 185, 129, 0.6)';
+                ctx.lineWidth = 3;
+                ctx.shadowColor = '#10b981';
+                ctx.shadowBlur = 20;
+
+                const ringRadius = (Date.now() % 1000) / 1000 * 180;
+                ctx.beginPath();
+                ctx.arc(hand.x, hand.y, ringRadius, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+
+            ctx.restore();
+        }
+
+        /* ===================================================================
+           MEDIAPIPE HAND TRACKING & GESTURE RECOGNITION
+           =================================================================== */
+        function initHandTracking() {
+            const hands = new Hands({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+            });
+
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.65,
+                minTrackingConfidence: 0.65
+            });
+
+            hands.onResults(onHandResults);
+
+            const camera = new Camera(webcamVideo, {
+                onFrame: async () => {
+                    await hands.send({ image: webcamVideo });
+                },
+                width: 640,
+                height: 480
+            });
+
+            camera.start()
+                .then(() => {
+                    state.cameraReady = true;
+                    document.getElementById('cameraStatusDot').className = 'w-2 h-2 rounded-full bg-emerald-500';
+                    document.getElementById('cameraStatusText').innerText = 'TRACKING LIVE';
+                })
+                .catch((err) => {
+                    console.warn("Camera access failed:", err);
+                    document.getElementById('cameraStatusDot').className = 'w-2 h-2 rounded-full bg-red-500';
+                    document.getElementById('cameraStatusText').innerText = 'CAMERA BLOCKED';
+                    document.getElementById('camFallback').classList.remove('hidden');
+                });
+        }
+
+        // Distance calculation helper
+        function getDist(p1, p2) {
+            return Math.hypot(p1.x - p2.x, p1.y - p2.y);
+        }
+
+        let previousGesture = 'NEUTRAL';
+
+        function onHandResults(results) {
+            // Setup hand Canvas resolution
+            handCanvas.width = handCanvas.clientWidth || 300;
+            handCanvas.height = handCanvas.clientHeight || 225;
+            
+            handCtx.save();
+            handCtx.clearRect(0, 0, handCanvas.width, handCanvas.height);
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                state.handPresent = true;
+                const lm = results.multiHandLandmarks[0];
+
+                // Render Skeleton Wireframe on Webcam HUD Canvas
+                if (state.showWireframe) {
+                    drawSkeletonOnCanvas(handCtx, lm, handCanvas.width, handCanvas.height);
+                }
+
+                // Index Tip (8), Thumb Tip (4), Wrist (0), Middle Tip (12), Ring Tip (16), Pinky Tip (20)
+                const indexTip = lm[8];
+                const thumbTip = lm[4];
+                const wrist = lm[0];
+                const middleTip = lm[12];
+                const ringTip = lm[16];
+                const pinkyTip = lm[20];
+
+                // Screen coordinates (Mirrored X)
+                const screenX = (1 - indexTip.x) * window.innerWidth;
+                const screenY = indexTip.y * window.innerHeight;
+
+                // Smooth lerp tracking
+                state.handPos.x += (screenX - state.handPos.x) * 0.4;
+                state.handPos.y += (screenY - state.handPos.y) * 0.4;
+                state.rawHandPos.x = 1 - indexTip.x;
+                state.rawHandPos.y = indexTip.y;
+
+                // Pinch position (Midpoint between thumb and index)
+                state.pinchPos = {
+                    x: (1 - (thumbTip.x + indexTip.x) / 2) * window.innerWidth,
+                    y: ((thumbTip.y + indexTip.y) / 2) * window.innerHeight
+                };
+
+                // Pinch Distance
+                state.pinchDistance = getDist(thumbTip, indexTip);
+
+                // Check Finger Extensions relative to wrist
+                const isIndexExtended = getDist(indexTip, wrist) > getDist(lm[5], wrist) * 1.3;
+                const isMiddleExtended = getDist(middleTip, wrist) > getDist(lm[9], wrist) * 1.3;
+                const isRingExtended = getDist(ringTip, wrist) > getDist(lm[13], wrist) * 1.3;
+                const isPinkyExtended = getDist(pinkyTip, wrist) > getDist(lm[17], wrist) * 1.3;
+
+                // Detect Gestures
+                let currentGesture = 'NEUTRAL';
+
+                if (state.pinchDistance < 0.065) {
+                    currentGesture = 'PINCH';
+                } else if (!isIndexExtended && !isMiddleExtended && !isRingExtended && !isPinkyExtended) {
+                    currentGesture = 'FIST';
+                } else if (isIndexExtended && isMiddleExtended && isRingExtended && isPinkyExtended) {
+                    currentGesture = 'PALM';
+                } else if (isIndexExtended && isMiddleExtended && !isRingExtended && !isPinkyExtended) {
+                    currentGesture = 'PEACE';
+                } else if (isIndexExtended && !isMiddleExtended && !isRingExtended && !isPinkyExtended) {
+                    currentGesture = 'POINT';
+                }
+
+                state.gesture = currentGesture;
+
+                // Trigger Sound FX on Gesture Switch
+                if (currentGesture !== previousGesture) {
+                    if (currentGesture === 'PINCH') synthEngine.playTriggerSound('pinch');
+                    if (currentGesture === 'PEACE') {
+                        synthEngine.playTriggerSound('burst');
+                        particleSystem.triggerBurst(state.handPos.x, state.handPos.y);
+                    }
+                    if (currentGesture === 'FIST') synthEngine.playTriggerSound('blackhole');
+                    previousGesture = currentGesture;
+                }
+
+                // Update Virtual Cursor Position & Interactions
+                updateVirtualCursor();
+
+                // Spatial Synth parameters update
+                synthEngine.updateSpatialSynth(state.rawHandPos.x, state.rawHandPos.y, state.pinchDistance);
+
+                // Update HUD Status Badge
+                updateGestureUI(currentGesture);
+
+            } else {
+                state.handPresent = false;
+                state.gesture = 'NEUTRAL';
+                updateGestureUI('NO HAND');
+                virtualCursor.style.opacity = '0';
+            }
+
+            handCtx.restore();
+        }
+
+        // Draw MediaPipe Skeleton on HUD canvas
+        function drawSkeletonOnCanvas(ctx, landmarks, w, h) {
+            const connections = [
+                [0,1],[1,2],[2,3],[3,4],        // Thumb
+                [0,5],[5,6],[6,7],[7,8],        // Index
+                [5,9],[9,10],[10,11],[11,12],   // Middle
+                [9,13],[13,14],[14,15],[15,16], // Ring
+                [13,17],[17,18],[18,19],[19,20],[0,17] // Pinky & Palm
+            ];
+
+            ctx.strokeStyle = '#00f3ff';
+            ctx.lineWidth = 2;
+
+            connections.forEach(([i, j]) => {
+                const p1 = landmarks[i];
+                const p2 = landmarks[j];
+                ctx.beginPath();
+                ctx.moveTo(p1.x * w, p1.y * h);
+                ctx.lineTo(p2.x * w, p2.y * h);
+                ctx.stroke();
+            });
+
+            landmarks.forEach((p) => {
+                ctx.fillStyle = '#ff0055';
+                ctx.beginPath();
+                ctx.arc(p.x * w, p.y * h, 3, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+
+        /* ===================================================================
+           UI & VIRTUAL CURSOR INTERACTION
+           =================================================================== */
+        function updateVirtualCursor() {
+            if (!state.handPresent) return;
+
+            virtualCursor.style.opacity = '1';
+            virtualCursor.style.left = `${state.handPos.x}px`;
+            virtualCursor.style.top = `${state.handPos.y}px`;
+
+            if (state.gesture === 'PINCH') {
+                cursorRing.style.transform = 'scale(1.5)';
+                cursorRing.style.borderColor = '#ff0055';
+
+                // Check Gesture OS Button Clicks via spatial overlap
+                if (state.mode === 'os') {
+                    const hoveredElem = document.elementFromPoint(state.handPos.x, state.handPos.y);
+                    if (hoveredElem && (hoveredElem.tagName === 'BUTTON' || hoveredElem.tagName === 'INPUT')) {
+                        hoveredElem.click();
+                    }
+                }
+            } else {
+                cursorRing.style.transform = 'scale(0.8)';
+                cursorRing.style.borderColor = '#00f3ff';
+            }
+        }
+
+        function updateGestureUI(gesture) {
+            const nameElem = document.getElementById('gestureName');
+            const iconElem = document.getElementById('gestureIcon');
+
+            nameElem.innerText = gesture;
+
+            const iconMap = {
+                'POINT': 'fa-hand-pointer text-cyber-primary',
+                'PINCH': 'fa-hand-pinch text-cyber-secondary',
+                'PALM': 'fa-hand text-emerald-400',
+                'FIST': 'fa-hand-back-fist text-cyber-accent',
+                'PEACE': 'fa-hand-scissors text-amber-400',
+                'NEUTRAL': 'fa-hand text-slate-400',
+                'NO HAND': 'fa-eye-slash text-red-400'
+            };
+
+            iconElem.className = `fa-solid ${iconMap[gesture] || 'fa-hand'} text-lg`;
+        }
+
+        /* ===================================================================
+           MODE SWITCHER & APP CONTROL HANDLERS
+           =================================================================== */
+        function switchMode(newMode) {
+            state.mode = newMode;
+
+            // Update Tab Highlight Styling
+            const tabs = {
+                sandbox: document.getElementById('tabSandbox'),
+                synth: document.getElementById('tabSynth'),
+                os: document.getElementById('tabOS')
+            };
+
+            Object.keys(tabs).forEach(key => {
+                if (key === newMode) {
+                    tabs[key].className = 'mode-tab px-4 py-2 rounded-xl font-orbitron text-xs font-semibold transition-all duration-300 bg-cyber-primary text-slate-950 shadow-lg shadow-cyber-primary/30 flex items-center gap-2';
+                } else {
+                    tabs[key].className = 'mode-tab px-4 py-2 rounded-xl font-orbitron text-xs font-semibold transition-all duration-300 text-slate-300 hover:text-white hover:bg-white/5 flex items-center gap-2';
+                }
+            });
+
+            // Toggle Gesture OS Container visibility
+            const osElem = document.getElementById('osContainer');
+            if (newMode === 'os') {
+                osElem.classList.remove('hidden');
+            } else {
+                osElem.classList.add('hidden');
+            }
+
+            // Play Mode Switch Audio
+            synthEngine.playTriggerSound('pop');
+        }
+
+        function toggleAudio() {
+            state.audioEnabled = !state.audioEnabled;
+            if (state.audioEnabled) {
+                synthEngine.init();
+                synthEngine.setMasterVolume(0.3);
+                document.getElementById('audioBtn').classList.add('border-cyber-primary', 'text-cyber-primary');
+                document.getElementById('audioIcon').className = 'fa-solid fa-volume-high text-sm';
+            } else {
+                synthEngine.setMasterVolume(0);
+                document.getElementById('audioBtn').classList.remove('border-cyber-primary', 'text-cyber-primary');
+                document.getElementById('audioIcon').className = 'fa-solid fa-volume-xmark text-sm';
+            }
+        }
+
+        function toggleHelpModal(show) {
+            const modal = document.getElementById('helpModal');
+            if (show) {
+                modal.classList.remove('opacity-0', 'pointer-events-none');
+            } else {
+                modal.classList.add('opacity-0', 'pointer-events-none');
+            }
+        }
+
+        function toggleWireframe() {
+            state.showWireframe = !state.showWireframe;
+            document.getElementById('wireframeIcon').style.opacity = state.showWireframe ? '1' : '0.3';
+        }
+
+        function toggleCameraMirror() {
+            state.isMirrored = !state.isMirrored;
+            handCanvas.style.transform = state.isMirrored ? 'scaleX(-1)' : 'scaleX(1)';
+        }
+
+        function toggleHudMinimize() {
+            state.hudMinimized = !state.hudMinimized;
+            const container = document.getElementById('camFeedContainer');
+            const icon = document.getElementById('minimizeIcon');
+
+            if (state.hudMinimized) {
+                container.classList.add('hidden');
+                icon.className = 'fa-solid fa-chevron-up';
+            } else {
+                container.classList.remove('hidden');
+                icon.className = 'fa-solid fa-chevron-down';
+            }
+        }
+
+        function enableMouseSimulation() {
+            state.mouseFallback = true;
+            document.getElementById('camFallback').classList.add('hidden');
+            document.getElementById('cameraStatusText').innerText = 'MOUSE SIMULATION';
+
+            window.addEventListener('mousemove', (e) => {
+                state.handPresent = true;
+                state.handPos.x = e.clientX;
+                state.handPos.y = e.clientY;
+                state.rawHandPos.x = e.clientX / window.innerWidth;
+                state.rawHandPos.y = e.clientY / window.innerHeight;
+                updateVirtualCursor();
+            });
+
+            window.addEventListener('mousedown', () => {
+                state.gesture = 'PINCH';
+                state.pinchPos = { x: state.handPos.x, y: state.handPos.y };
+                synthEngine.playTriggerSound('pinch');
+                updateGestureUI('PINCH');
+            });
+
+            window.addEventListener('mouseup', () => {
+                state.gesture = 'POINT';
+                updateGestureUI('POINT');
+            });
+        }
+
+        // Gesture OS Interactive Handlers
+        function updateOSLight() {
+            const val = document.getElementById('intensitySlider').value;
+            document.getElementById('intensityVal').innerText = `${val}%`;
+            state.lightIntensity = val / 100;
+        }
+
+        function setLightTheme(hex) {
+            state.lightColor = hex;
+        }
+
+        function playMatrixSound(idx) {
+            synthEngine.playTriggerSound(`matrix${idx % 2}`);
+            particleSystem.triggerBurst(window.innerWidth / 2, window.innerHeight / 2);
+        }
+
+        function toggleOSGravity() {
+            state.gravityEnabled = !state.gravityEnabled;
+            const btn = document.getElementById('toggleGravity').firstElementChild;
+            btn.style.transform = state.gravityEnabled ? 'translateX(1.5rem)' : 'translateX(0)';
+        }
+
+        function toggleOSTrails() {
+            state.trailsEnabled = !state.trailsEnabled;
+            const btn = document.getElementById('toggleTrails').firstElementChild;
+            btn.style.transform = state.trailsEnabled ? 'translateX(1.5rem)' : 'translateX(0)';
+        }
+
+        function resetParticleSystem() {
+            particleSystem.init();
+            synthEngine.playTriggerSound('burst');
+        }
+
+        // FPS Calculation Counter Loop
+        let frameCount = 0;
+        let lastTime = performance.now();
+        function updateFPS() {
+            const now = performance.now();
+            frameCount++;
+            if (now - lastTime >= 1000) {
+                state.fps = frameCount;
+                document.getElementById('fpsCounter').innerText = state.fps;
+                frameCount = 0;
+                lastTime = now;
+            }
+            requestAnimationFrame(updateFPS);
+        }
+
+        /* ===================================================================
+           INITIALIZATION ENTRY POINT
+           =================================================================== */
+        window.onload = () => {
+            initHandTracking();
+            renderScene();
+            updateFPS();
+
+            // First click audio unlock listener
+            window.addEventListener('click', () => {
+                if (!synthEngine.isSetup) {
+                    synthEngine.init();
+                }
+            }, { once: true });
+        };
+    </script>
+</body>
+</html>
